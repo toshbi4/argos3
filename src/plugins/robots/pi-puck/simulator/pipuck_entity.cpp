@@ -28,6 +28,131 @@ namespace argos {
 
    /****************************************/
    /****************************************/
+   CPiPuckEntity::CPiPuckEntity():
+           CComposableEntity(nullptr),
+           m_pcControllableEntity(nullptr),
+           m_pcEmbodiedEntity(nullptr),
+           m_pcDifferentialDriveEntity(nullptr),
+           m_pcSimpleRadioEquippedEntity(nullptr) {};
+
+   CPiPuckEntity::CPiPuckEntity(const std::string& str_id,
+                                const std::string& str_controller_id,
+                                const CVector3& c_position,
+                                const CQuaternion& c_orientation) :
+      CComposableEntity(nullptr, str_id),
+      m_pcControllableEntity(nullptr),
+      m_pcEmbodiedEntity(nullptr),
+      m_pcDifferentialDriveEntity(nullptr),
+      m_pcSimpleRadioEquippedEntity(nullptr) {
+
+       try {
+           /*
+            * Create and init components
+            */
+           /*
+            * Embodied entity
+            * Better to put this first, because many other entities need this one
+            */
+          m_pcEmbodiedEntity = new CEmbodiedEntity(this, "body_0", c_position, c_orientation);
+          AddComponent(*m_pcEmbodiedEntity);
+          SAnchor& sOriginAnchor = m_pcEmbodiedEntity->GetOriginAnchor();
+          /* create and enable additional anchors */
+          m_pcEmbodiedEntity->AddAnchor("body",
+                                        CVector3(0.0, 0.0, 0.00125),
+                                        CQuaternion()).Enable();
+          m_pcEmbodiedEntity->AddAnchor("left_wheel",
+                                        CVector3(0.0, -0.0255, 0.02125),
+                                        CQuaternion(CRadians::PI_OVER_TWO,
+                                                    CVector3::X)).Enable();
+          m_pcEmbodiedEntity->AddAnchor("right_wheel",
+                                        CVector3(0.0, 0.0255, 0.02125),
+                                        CQuaternion(-CRadians::PI_OVER_TWO,
+                                                    CVector3::X)).Enable();
+          /* create and initialize the differential drive entity */
+          m_pcDifferentialDriveEntity
+             = new CPiPuckDifferentialDriveEntity(this, "differential_drive_0");
+          AddComponent(*m_pcDifferentialDriveEntity);
+          m_pcDifferentialDriveEntity->Enable();
+          /* create and initialize a radio equipped entity for the wifi */
+          m_pcSimpleRadioEquippedEntity = new CSimpleRadioEquippedEntity(this, "simple_radios_0");
+
+          AddComponent(*m_pcSimpleRadioEquippedEntity);
+          /* create and initialize the directional LED equipped entity */
+          m_pcDirectionalLEDEquippedEntity = new CDirectionalLEDEquippedEntity(this, "leds_0");
+          m_pcDirectionalLEDEquippedEntity->AddLED("ring_led_0",
+                                                   CVector3(0, 0, 0.025),
+                                                   CQuaternion(),
+                                                   sOriginAnchor,
+                                                   CRadians::PI_OVER_THREE,
+                                                   CColor::BLACK);
+          m_pcDirectionalLEDEquippedEntity->AddLED("ring_led_1",
+                                                   CVector3(0, 0, 0.025),
+                                                   CQuaternion(),
+                                                   sOriginAnchor,
+                                                   CRadians::PI_OVER_THREE,
+                                                   CColor::BLACK);
+          m_pcDirectionalLEDEquippedEntity->AddLED("ring_led_2",
+                                                   CVector3(0, 0, 0.025),
+                                                   CQuaternion(),
+                                                   sOriginAnchor,
+                                                   CRadians::PI_OVER_THREE,
+                                                   CColor::BLACK);
+          m_pcDirectionalLEDEquippedEntity->AddLED("ring_led_3",
+                                                   CVector3(0, 0, 0.025),
+                                                   CQuaternion(),
+                                                   sOriginAnchor,
+                                                   CRadians::PI_OVER_THREE,
+                                                   CColor::BLACK);
+          m_pcDirectionalLEDEquippedEntity->AddLED("ring_led_4",
+                                                   CVector3(0, 0, 0.025),
+                                                   CQuaternion(),
+                                                   sOriginAnchor,
+                                                   CRadians::PI_OVER_THREE,
+                                                   CColor::BLACK);
+          m_pcDirectionalLEDEquippedEntity->AddLED("ring_led_5",
+                                                   CVector3(0, 0, 0.025),
+                                                   CQuaternion(),
+                                                   sOriginAnchor,
+                                                   CRadians::PI_OVER_THREE,
+                                                   CColor::BLACK);
+          m_pcDirectionalLEDEquippedEntity->AddLED("ring_led_6",
+                                                   CVector3(0, 0, 0.025),
+                                                   CQuaternion(),
+                                                   sOriginAnchor,
+                                                   CRadians::PI_OVER_THREE,
+                                                   CColor::BLACK);
+          m_pcDirectionalLEDEquippedEntity->AddLED("ring_led_7",
+                                                   CVector3(0, 0, 0.025),
+                                                   CQuaternion(),
+                                                   sOriginAnchor,
+                                                   CRadians::PI_OVER_THREE,
+                                                   CColor::BLACK);
+          m_pcDirectionalLEDEquippedEntity->AddLED("front_led",
+                                                   CVector3(0, 0, 0.025),
+                                                   CQuaternion(),
+                                                   sOriginAnchor,
+                                                   CRadians::PI_OVER_THREE,
+                                                   CColor::BLACK);
+          m_pcDirectionalLEDEquippedEntity->AddLED("body_led",
+                                                   CVector3(0, 0, 0.025),
+                                                   CQuaternion(),
+                                                   sOriginAnchor,
+                                                   CRadians::PI_OVER_THREE,
+                                                   CColor::BLACK);
+
+          AddComponent(*m_pcDirectionalLEDEquippedEntity);
+          /* Create and initialize the controllable entity */
+          m_pcControllableEntity = new CControllableEntity(this);
+          AddComponent(*m_pcControllableEntity);
+          m_pcControllableEntity->SetController(str_controller_id);
+          /* Update components */
+          UpdateComponents();
+       }
+       catch(CARGoSException& ex) {
+          THROW_ARGOSEXCEPTION_NESTED("Failed to initialize PiPuck", ex);
+       }
+
+   }
 
    void CPiPuckEntity::Init(TConfigurationNode& t_tree) {
       try {

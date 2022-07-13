@@ -27,12 +27,12 @@ namespace argos {
 
    public:
 
-      CPiPuckEntity() :
-         CComposableEntity(nullptr),
-         m_pcControllableEntity(nullptr),
-         m_pcEmbodiedEntity(nullptr),
-         m_pcDifferentialDriveEntity(nullptr),
-         m_pcSimpleRadioEquippedEntity(nullptr) {}
+      CPiPuckEntity();
+
+      CPiPuckEntity(const std::string& str_id,
+                    const std::string& str_controller_id,
+                    const CVector3& c_position = CVector3(),
+                    const CQuaternion& c_orientation = CQuaternion());
 
       virtual ~CPiPuckEntity() {}
 
