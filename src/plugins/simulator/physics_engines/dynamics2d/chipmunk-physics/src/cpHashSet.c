@@ -1,4 +1,4 @@
-/* Copyright (c) 2007 Scott Lembcke
+/* Copyright (c) 2013 Scott Lembcke and Howling Moon Software
  * 
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -18,11 +18,8 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
- 
-#include <stdlib.h>
-#include <assert.h>
 
-#include "chipmunk_private.h"
+#include "chipmunk/chipmunk_private.h"
 #include "prime.h"
 
 typedef struct cpHashSetBin {
@@ -32,7 +29,7 @@ typedef struct cpHashSetBin {
 } cpHashSetBin;
 
 struct cpHashSet {
-	int entries, size;
+	unsigned int entries, size;
 	
 	cpHashSetEqlFunc eql;
 	void *default_value;
@@ -91,18 +88,18 @@ static void
 cpHashSetResize(cpHashSet *set)
 {
 	// Get the next approximate doubled prime.
-	int newSize = next_prime(set->size + 1);
+	unsigned int newSize = next_prime(set->size + 1);
 	// Allocate a new table.
 	cpHashSetBin **newTable = (cpHashSetBin **)cpcalloc(newSize, sizeof(cpHashSetBin *));
 	
 	// Iterate over the chains.
-	for(int i=0; i<set->size; i++){
+	for(unsigned int i=0; i<set->size; i++){
 		// Rehash the bins into the new table.
 		cpHashSetBin *bin = set->table[i];
 		while(bin){
 			cpHashSetBin *next = bin->next;
 			
-			int idx = bin->hash%newSize;
+			cpHashValue idx = bin->hash%newSize;
 			bin->next = newTable[idx];
 			newTable[idx] = bin;
 			
@@ -135,7 +132,7 @@ getUnusedBin(cpHashSet *set)
 	} else {
 		// Pool is exhausted, make more
 		int count = CP_BUFFER_BYTES/sizeof(cpHashSetBin);
-		cpAssertSoft(count, "Buffer size is too small.");
+		cpAssertHard(count, "Internal Error: Buffer size is too small.");
 		
 		cpHashSetBin *buffer = (cpHashSetBin *)cpcalloc(1, CP_BUFFER_BYTES);
 		cpArrayPush(set->allocatedBuffers, buffer);
@@ -152,10 +149,10 @@ cpHashSetCount(cpHashSet *set)
 	return set->entries;
 }
 
-void *
-cpHashSetInsert(cpHashSet *set, cpHashValue hash, void *ptr, void *data, cpHashSetTransFunc trans)
+const void *
+cpHashSetInsert(cpHashSet *set, cpHashValue hash, const void *ptr, cpHashSetTransFunc trans, void *data)
 {
-	int idx = hash%set->size;
+	cpHashValue idx = hash%set->size;
 	
 	// Find the bin with the matching element.
 	cpHashSetBin *bin = set->table[idx];
@@ -178,10 +175,10 @@ cpHashSetInsert(cpHashSet *set, cpHashValue hash, void *ptr, void *data, cpHashS
 	return bin->elt;
 }
 
-void *
-cpHashSetRemove(cpHashSet *set, cpHashValue hash, void *ptr)
+const void *
+cpHashSetRemove(cpHashSet *set, cpHashValue hash, const void *ptr)
 {
-	int idx = hash%set->size;
+	cpHashValue idx = hash%set->size;
 	
 	cpHashSetBin **prev_ptr = &set->table[idx];
 	cpHashSetBin *bin = set->table[idx];
@@ -198,7 +195,7 @@ cpHashSetRemove(cpHashSet *set, cpHashValue hash, void *ptr)
 		(*prev_ptr) = bin->next;
 		set->entries--;
 		
-		void *elt = bin->elt;
+		const void *elt = bin->elt;
 		recycleBin(set, bin);
 		
 		return elt;
@@ -207,10 +204,10 @@ cpHashSetRemove(cpHashSet *set, cpHashValue hash, void *ptr)
 	return NULL;
 }
 
-void *
-cpHashSetFind(cpHashSet *set, cpHashValue hash, void *ptr)
+const void *
+cpHashSetFind(cpHashSet *set, cpHashValue hash, const void *ptr)
 {	
-	int idx = hash%set->size;
+	cpHashValue idx = hash%set->size;
 	cpHashSetBin *bin = set->table[idx];
 	while(bin && !set->eql(ptr, bin->elt))
 		bin = bin->next;
@@ -221,7 +218,7 @@ cpHashSetFind(cpHashSet *set, cpHashValue hash, void *ptr)
 void
 cpHashSetEach(cpHashSet *set, cpHashSetIteratorFunc func, void *data)
 {
-	for(int i=0; i<set->size; i++){
+	for(unsigned int i=0; i<set->size; i++){
 		cpHashSetBin *bin = set->table[i];
 		while(bin){
 			cpHashSetBin *next = bin->next;
@@ -234,7 +231,7 @@ cpHashSetEach(cpHashSet *set, cpHashSetIteratorFunc func, void *data)
 void
 cpHashSetFilter(cpHashSet *set, cpHashSetFilterFunc func, void *data)
 {
-	for(int i=0; i<set->size; i++){
+	for(unsigned int i=0; i<set->size; i++){
 		// The rest works similarly to cpHashSetRemove() above.
 		cpHashSetBin **prev_ptr = &set->table[i];
 		cpHashSetBin *bin = set->table[i];

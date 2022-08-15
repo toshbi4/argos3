@@ -1,4 +1,4 @@
-/* Copyright (c) 2007 Scott Lembcke
+/* Copyright (c) 2013 Scott Lembcke and Howling Moon Software
  * 
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -18,230 +18,228 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
- 
-#include <stdlib.h>
 
-#include "chipmunk_private.h"
+#include "chipmunk/chipmunk_private.h"
 
-//#pragma mark Point Query Functions
+//MARK: Nearest Point Query Functions
 
-typedef struct pointQueryContext {
-	cpLayers layers;
-	cpGroup group;
+struct PointQueryContext {
+	cpVect point;
+	cpFloat maxDistance;
+	cpShapeFilter filter;
 	cpSpacePointQueryFunc func;
-	void *data;
-} pointQueryContext;
+};
 
-static void 
-pointQueryHelper(cpVect *point, cpShape *shape, pointQueryContext *context)
+static cpCollisionID
+NearestPointQuery(struct PointQueryContext *context, cpShape *shape, cpCollisionID id, void *data)
 {
 	if(
-		!(shape->group && context->group == shape->group) && (context->layers&shape->layers) &&
-		cpShapePointQuery(shape, *point)
+		!cpShapeFilterReject(shape->filter, context->filter)
 	){
-		context->func(shape, context->data);
+		cpPointQueryInfo info;
+		cpShapePointQuery(shape, context->point, &info);
+		
+		if(info.shape && info.distance < context->maxDistance) context->func(shape, info.point, info.distance, info.gradient, data);
 	}
+	
+	return id;
 }
 
 void
-cpSpacePointQuery(cpSpace *space, cpVect point, cpLayers layers, cpGroup group, cpSpacePointQueryFunc func, void *data)
+cpSpacePointQuery(cpSpace *space, cpVect point, cpFloat maxDistance, cpShapeFilter filter, cpSpacePointQueryFunc func, void *data)
 {
-	pointQueryContext context = {layers, group, func, data};
+	struct PointQueryContext context = {point, maxDistance, filter, func};
+	cpBB bb = cpBBNewForCircle(point, cpfmax(maxDistance, 0.0f));
 	
 	cpSpaceLock(space); {
-    cpSpatialIndexPointQuery(space->activeShapes, point, (cpSpatialIndexQueryFunc)pointQueryHelper, &context);
-    cpSpatialIndexPointQuery(space->staticShapes, point, (cpSpatialIndexQueryFunc)pointQueryHelper, &context);
+		cpSpatialIndexQuery(space->dynamicShapes, &context, bb, (cpSpatialIndexQueryFunc)NearestPointQuery, data);
+		cpSpatialIndexQuery(space->staticShapes, &context, bb, (cpSpatialIndexQueryFunc)NearestPointQuery, data);
 	} cpSpaceUnlock(space, cpTrue);
 }
 
-static void
-rememberLastPointQuery(cpShape *shape, cpShape **outShape)
+static cpCollisionID
+NearestPointQueryNearest(struct PointQueryContext *context, cpShape *shape, cpCollisionID id, cpPointQueryInfo *out)
 {
-	if(!shape->sensor) *outShape = shape;
+	if(
+		!cpShapeFilterReject(shape->filter, context->filter) && !shape->sensor
+	){
+		cpPointQueryInfo info;
+		cpShapePointQuery(shape, context->point, &info);
+		
+		if(info.distance < out->distance) (*out) = info;
+	}
+	
+	return id;
 }
 
 cpShape *
-cpSpacePointQueryFirst(cpSpace *space, cpVect point, cpLayers layers, cpGroup group)
+cpSpacePointQueryNearest(cpSpace *space, cpVect point, cpFloat maxDistance, cpShapeFilter filter, cpPointQueryInfo *out)
 {
-	cpShape *shape = NULL;
-	cpSpacePointQuery(space, point, layers, group, (cpSpacePointQueryFunc)rememberLastPointQuery, &shape);
-	
-	return shape;
-}
-
-
-//#pragma mark Segment Query Functions
-
-typedef struct segQueryContext {
-	cpVect start, end;
-	cpLayers layers;
-	cpGroup group;
-	cpSpaceSegmentQueryFunc func;
-} segQueryContext;
-
-static cpFloat
-segQueryFunc(segQueryContext *context, cpShape *shape, void *data)
-{
-	cpSegmentQueryInfo info;
-	
-	if(
-		!(shape->group && context->group == shape->group) && (context->layers&shape->layers) &&
-		cpShapeSegmentQuery(shape, context->start, context->end, &info)
-	){
-		context->func(shape, info.t, info.n, data);
-	}
-	
-	return 1.0f;
-}
-
-void
-cpSpaceSegmentQuery(cpSpace *space, cpVect start, cpVect end, cpLayers layers, cpGroup group, cpSpaceSegmentQueryFunc func, void *data)
-{
-	segQueryContext context = {
-		start, end,
-		layers, group,
-		func,
-	};
-	
-	/* cpSpaceLock(space); */
-  /* { */
-  cpSpatialIndexSegmentQuery(space->staticShapes, &context, start, end, 1.0f, (cpSpatialIndexSegmentQueryFunc)segQueryFunc, data);
-  cpSpatialIndexSegmentQuery(space->activeShapes, &context, start, end, 1.0f, (cpSpatialIndexSegmentQueryFunc)segQueryFunc, data);
-	/* } */
-  /* cpSpaceUnlock(space, cpTrue); */
-}
-
-typedef struct segQueryFirstContext {
-	cpVect start, end;
-	cpLayers layers;
-	cpGroup group;
-} segQueryFirstContext;
-
-static cpFloat
-segQueryFirst(segQueryFirstContext *context, cpShape *shape, cpSegmentQueryInfo *out)
-{
-	cpSegmentQueryInfo info;
-	
-	if(
-		!(shape->group && context->group == shape->group) && (context->layers&shape->layers) &&
-		!shape->sensor &&
-		cpShapeSegmentQuery(shape, context->start, context->end, &info) &&
-		info.t < out->t
-	){
-		*out = info;
-	}
-	
-	return out->t;
-}
-
-cpShape *
-cpSpaceSegmentQueryFirst(cpSpace *space, cpVect start, cpVect end, cpLayers layers, cpGroup group, cpSegmentQueryInfo *out)
-{
-	cpSegmentQueryInfo info = {NULL, 1.0f, cpvzero};
+	cpPointQueryInfo info = {NULL, cpvzero, maxDistance, cpvzero};
 	if(out){
 		(*out) = info;
   } else {
 		out = &info;
 	}
 	
-	segQueryFirstContext context = {
-		start, end,
-		layers, group
+	struct PointQueryContext context = {
+		point, maxDistance,
+		filter,
+		NULL
 	};
 	
-	cpSpatialIndexSegmentQuery(space->staticShapes, &context, start, end, 1.0f, (cpSpatialIndexSegmentQueryFunc)segQueryFirst, out);
-	cpSpatialIndexSegmentQuery(space->activeShapes, &context, start, end, out->t, (cpSpatialIndexSegmentQueryFunc)segQueryFirst, out);
+	cpBB bb = cpBBNewForCircle(point, cpfmax(maxDistance, 0.0f));
+	cpSpatialIndexQuery(space->dynamicShapes, &context, bb, (cpSpatialIndexQueryFunc)NearestPointQueryNearest, out);
+	cpSpatialIndexQuery(space->staticShapes, &context, bb, (cpSpatialIndexQueryFunc)NearestPointQueryNearest, out);
 	
-	return out->shape;
+	return (cpShape *)out->shape;
 }
 
-//#pragma mark BB Query Functions
 
-typedef struct bbQueryContext {
-	cpLayers layers;
-	cpGroup group;
-	cpSpaceBBQueryFunc func;
-	void *data;
-} bbQueryContext;
+//MARK: Segment Query Functions
 
-static void 
-bbQueryHelper(cpBB *bb, cpShape *shape, bbQueryContext *context)
+struct SegmentQueryContext {
+	cpVect start, end;
+	cpFloat radius;
+	cpShapeFilter filter;
+	cpSpaceSegmentQueryFunc func;
+};
+
+static cpFloat
+SegmentQuery(struct SegmentQueryContext *context, cpShape *shape, void *data)
 {
+	cpSegmentQueryInfo info;
+	
 	if(
-		!(shape->group && context->group == shape->group) && (context->layers&shape->layers) &&
-		cpBBIntersects(*bb, shape->bb)
+		!cpShapeFilterReject(shape->filter, context->filter) &&
+		cpShapeSegmentQuery(shape, context->start, context->end, context->radius, &info)
 	){
-		context->func(shape, context->data);
+		context->func(shape, info.point, info.normal, info.alpha, data);
 	}
+	
+	return 1.0f;
 }
 
 void
-cpSpaceBBQuery(cpSpace *space, cpBB bb, cpLayers layers, cpGroup group, cpSpaceBBQueryFunc func, void *data)
+cpSpaceSegmentQuery(cpSpace *space, cpVect start, cpVect end, cpFloat radius, cpShapeFilter filter, cpSpaceSegmentQueryFunc func, void *data)
 {
-	bbQueryContext context = {layers, group, func, data};
-	
+	struct SegmentQueryContext context = {
+		start, end,
+		radius,
+		filter,
+		func,
+	};
+
 	cpSpaceLock(space); {
-    cpSpatialIndexQuery(space->activeShapes, &bb, bb, (cpSpatialIndexQueryFunc)bbQueryHelper, &context);
-    cpSpatialIndexQuery(space->staticShapes, &bb, bb, (cpSpatialIndexQueryFunc)bbQueryHelper, &context);
+    cpSpatialIndexSegmentQuery(space->staticShapes, &context, start, end, 1.0f, (cpSpatialIndexSegmentQueryFunc)SegmentQuery, data);
+    cpSpatialIndexSegmentQuery(space->dynamicShapes, &context, start, end, 1.0f, (cpSpatialIndexSegmentQueryFunc)SegmentQuery, data);
 	} cpSpaceUnlock(space, cpTrue);
 }
 
-//#pragma mark Shape Query Functions
+static cpFloat
+SegmentQueryFirst(struct SegmentQueryContext *context, cpShape *shape, cpSegmentQueryInfo *out)
+{
+	cpSegmentQueryInfo info;
+	
+	if(
+		!cpShapeFilterReject(shape->filter, context->filter) && !shape->sensor &&
+		cpShapeSegmentQuery(shape, context->start, context->end, context->radius, &info) &&
+		info.alpha < out->alpha
+	){
+		(*out) = info;
+	}
+	
+	return out->alpha;
+}
 
-typedef struct shapeQueryContext {
+cpShape *
+cpSpaceSegmentQueryFirst(cpSpace *space, cpVect start, cpVect end, cpFloat radius, cpShapeFilter filter, cpSegmentQueryInfo *out)
+{
+	cpSegmentQueryInfo info = {NULL, end, cpvzero, 1.0f};
+	if(out){
+		(*out) = info;
+  } else {
+		out = &info;
+	}
+	
+	struct SegmentQueryContext context = {
+		start, end,
+		radius,
+		filter,
+		NULL
+	};
+	
+	cpSpatialIndexSegmentQuery(space->staticShapes, &context, start, end, 1.0f, (cpSpatialIndexSegmentQueryFunc)SegmentQueryFirst, out);
+	cpSpatialIndexSegmentQuery(space->dynamicShapes, &context, start, end, out->alpha, (cpSpatialIndexSegmentQueryFunc)SegmentQueryFirst, out);
+	
+	return (cpShape *)out->shape;
+}
+
+//MARK: BB Query Functions
+
+struct BBQueryContext {
+	cpBB bb;
+	cpShapeFilter filter;
+	cpSpaceBBQueryFunc func;
+};
+
+static cpCollisionID
+BBQuery(struct BBQueryContext *context, cpShape *shape, cpCollisionID id, void *data)
+{
+	if(
+		!cpShapeFilterReject(shape->filter, context->filter) &&
+		cpBBIntersects(context->bb, shape->bb)
+	){
+		context->func(shape, data);
+	}
+	
+	return id;
+}
+
+void
+cpSpaceBBQuery(cpSpace *space, cpBB bb, cpShapeFilter filter, cpSpaceBBQueryFunc func, void *data)
+{
+	struct BBQueryContext context = {bb, filter, func};
+	
+	cpSpaceLock(space); {
+    cpSpatialIndexQuery(space->dynamicShapes, &context, bb, (cpSpatialIndexQueryFunc)BBQuery, data);
+    cpSpatialIndexQuery(space->staticShapes, &context, bb, (cpSpatialIndexQueryFunc)BBQuery, data);
+	} cpSpaceUnlock(space, cpTrue);
+}
+
+//MARK: Shape Query Functions
+
+struct ShapeQueryContext {
 	cpSpaceShapeQueryFunc func;
 	void *data;
 	cpBool anyCollision;
-} shapeQueryContext;
+};
 
 // Callback from the spatial hash.
-static void
-shapeQueryHelper(cpShape *a, cpShape *b, shapeQueryContext *context)
+static cpCollisionID
+ShapeQuery(cpShape *a, cpShape *b, cpCollisionID id, struct ShapeQueryContext *context)
 {
-	// Reject any of the simple cases
-	if(
-		(a->group && a->group == b->group) ||
-		!(a->layers & b->layers) ||
-		a == b
-	) return;
+	if(cpShapeFilterReject(a->filter, b->filter) || a == b) return id;
 	
-	cpContact contacts[CP_MAX_CONTACTS_PER_ARBITER];
-	int numContacts = 0;
-	
-	// Shape 'a' should have the lower shape type. (required by cpCollideShapes() )
-	if(a->klass->type <= b->klass->type){
-		numContacts = cpCollideShapes(a, b, contacts);
-	} else {
-		numContacts = cpCollideShapes(b, a, contacts);
-		for(int i=0; i<numContacts; i++) contacts[i].n = cpvneg(contacts[i].n);
+	cpContactPointSet set = cpShapesCollide(a, b);
+	if(set.count){
+		if(context->func) context->func(b, &set, context->data);
+		context->anyCollision = !(a->sensor || b->sensor);
 	}
 	
-	if(numContacts){
-		context->anyCollision |= !(a->sensor || b->sensor);
-		
-		if(context->func){
-			cpContactPointSet set = {numContacts, {}};
-			for(int i=0; i<set.count; i++){
-				set.points[i].point = contacts[i].p;
-				set.points[i].normal = contacts[i].n;
-				set.points[i].dist = contacts[i].dist;
-			}
-			
-			context->func(b, &set, context->data);
-		}
-	}
+	return id;
 }
 
 cpBool
 cpSpaceShapeQuery(cpSpace *space, cpShape *shape, cpSpaceShapeQueryFunc func, void *data)
 {
 	cpBody *body = shape->body;
-	cpBB bb = (body ? cpShapeUpdate(shape, body->p, body->rot) : shape->bb);
-	shapeQueryContext context = {func, data, cpFalse};
+	cpBB bb = (body ? cpShapeUpdate(shape, body->transform) : shape->bb);
+	struct ShapeQueryContext context = {func, data, cpFalse};
 	
 	cpSpaceLock(space); {
-    cpSpatialIndexQuery(space->activeShapes, shape, bb, (cpSpatialIndexQueryFunc)shapeQueryHelper, &context);
-    cpSpatialIndexQuery(space->staticShapes, shape, bb, (cpSpatialIndexQueryFunc)shapeQueryHelper, &context);
+    cpSpatialIndexQuery(space->dynamicShapes, shape, bb, (cpSpatialIndexQueryFunc)ShapeQuery, &context);
+    cpSpatialIndexQuery(space->staticShapes, shape, bb, (cpSpatialIndexQueryFunc)ShapeQuery, &context);
 	} cpSpaceUnlock(space, cpTrue);
 	
 	return context.anyCollision;
